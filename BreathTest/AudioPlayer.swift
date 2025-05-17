@@ -137,41 +137,26 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     
     //Play breaths
-    func startBreathRoutine(breaths: Int, inhaleBeats: Int, exhaleBeats: Int,inhaleDuration:TimeInterval, exhaleDuration: TimeInterval) {
-        
+    func startBreathRoutine(breaths: Int, inhaleBeats: Int, exhaleBeats: Int, inhaleDuration: TimeInterval, exhaleDuration: TimeInterval) {
         breathRoutineTask = Task {
             do {
                 let start = CFAbsoluteTimeGetCurrent()
                 for _ in 1...breaths {
-                    
-                    //let start = CFAbsoluteTimeGetCurrent()
-                    
                     try Task.checkCancellation()
                     await PlayBreathAudio(named: "Inhale2", duration: 1.0)
-        
                     try Task.checkCancellation()
                     await runBreathCadence(k: inhaleBeats)
-
                     try Task.checkCancellation()
                     await PlayBreathAudio(named: "Exhale2", duration: 1.0)
-                    
                     try Task.checkCancellation()
                     await runBreathCadence(k: exhaleBeats)
-                    
-                    
-                    
-//                    let elapsed = CFAbsoluteTimeGetCurrent() - start
-//                    print("elaspsed time: \(elapsed)")
                 }
-                
                 let scheduledDuration = TimeInterval(breaths) * (inhaleDuration + exhaleDuration)
                 let elapsed = CFAbsoluteTimeGetCurrent() - start
-                print("elaspsed time: \(elapsed) scheduled: \(scheduledDuration)")
+                print("Elapsed time: \(elapsed), scheduled: \(scheduledDuration)")
                 if elapsed < scheduledDuration {
                     await delay(seconds: scheduledDuration - elapsed)
                 }
-                
-                
             } catch {
                 print("Breath routine was cancelled or encountered an error.")
             }
@@ -249,23 +234,17 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             let player = try AVAudioPlayer(contentsOf: url)
             audioPlayer = player
             
-            
             player.prepareToPlay()
             player.play()
             
-            // Wait until the audio finishes
-            await delay(seconds: player.duration)
+            // Wait until the audio finishes or the specified duration is reached
+            let endTime = start + duration
+            while CFAbsoluteTimeGetCurrent() < endTime {
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second delay
+            }
             
             player.stop()
             audioPlayer = nil
-
-            // Add silence for the rest of the expected time
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
-            let remaining = duration - elapsed
-            
-            if remaining > 0 {
-                await delay(seconds: remaining * 0.94)
-            }
             
         } catch {
             print("Error playing audio \(name): \(error.localizedDescription)")
