@@ -26,6 +26,7 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     @Published var isPlaying = false
     @Published var isCycleComplete: Bool = true
+    @Published var isPaused: Bool = false
 
     let inhaleDuration: TimeInterval = 1.0
     let tockDuration: TimeInterval = 1.0
@@ -142,19 +143,27 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             do {
                 let start = CFAbsoluteTimeGetCurrent()
                 for _ in 1...breaths {
+                    if isPaused {
+                        await Task.yield()
+                        continue
+                    }
+                    
                     try Task.checkCancellation()
                     await PlayBreathAudio(named: "Inhale2", duration: 1.0)
+                    
                     try Task.checkCancellation()
                     await runBreathCadence(k: inhaleBeats)
+                    
                     try Task.checkCancellation()
                     await PlayBreathAudio(named: "Exhale2", duration: 1.0)
+                    
                     try Task.checkCancellation()
                     await runBreathCadence(k: exhaleBeats)
                 }
+                
                 let scheduledDuration = TimeInterval(breaths) * (inhaleDuration + exhaleDuration)
                 let elapsed = CFAbsoluteTimeGetCurrent() - start
-                print("Elapsed time: \(elapsed), scheduled: \(scheduledDuration)")
-                if elapsed < scheduledDuration {
+                if elapsed < scheduledDuration && !isPaused {
                     await delay(seconds: scheduledDuration - elapsed)
                 }
             } catch {
@@ -187,6 +196,11 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if k <= 0 { return }
         
         for j in 1...k {
+            if isPaused {
+                await Task.yield()
+                continue
+            }
+            
             try? Task.checkCancellation()
             
             if k == 1 {
@@ -198,6 +212,7 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 await PlayBreathAudio(named: "Bell2", duration: 2.0)
                 return
             }
+            
             if k > 2 {
                 if j < k {
                     await PlayBreathAudio(named: "Tock2", duration: 1.0)
@@ -230,22 +245,24 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         
         do {
             let start = CFAbsoluteTimeGetCurrent()
-            
             let player = try AVAudioPlayer(contentsOf: url)
             audioPlayer = player
-            
             player.prepareToPlay()
             player.play()
             
-            // Wait until the audio finishes or the specified duration is reached
             let endTime = start + duration
             while CFAbsoluteTimeGetCurrent() < endTime {
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second delay
+                if isPaused {
+                    await Task.yield()
+                    continue
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
             }
             
-            player.stop()
-            audioPlayer = nil
-            
+            if !isPaused {
+                player.stop()
+                audioPlayer = nil
+            }
         } catch {
             print("Error playing audio \(name): \(error.localizedDescription)")
         }
@@ -273,7 +290,19 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         
     }
 
-    
+    func pauseAudio() {
+        isPaused = true
+        audioPlayer?.pause()
+        breathRoutineTask?.cancel()
+        cadenceRoutineTask?.cancel()
+        isPlaying = false
+    }
+
+    func resumeAudio() {
+        isPaused = false
+        audioPlayer?.play()
+        isPlaying = true
+    }
 }
 
 

@@ -1,4 +1,3 @@
-
 //
 //  Breathe.swift
 //  BreathTest
@@ -81,6 +80,9 @@ struct BreatheView: View {
     
     @State private var pauseTask: Task<Void, Never>?
     
+    @State private var isPaused: Bool = false
+    @State private var pauseStartTime: Date?
+    @State private var remainingTime: TimeInterval = 0
     
     var progress: Double {
     
@@ -146,31 +148,38 @@ struct BreatheView: View {
                         currentCycleCount = 1
                         startSession()
                     } else {
-                        
-                        player.stopAudio()
-                        isPlaying.toggle()
-                        cycleTimer?.invalidate()
-                        cycleTimer = nil
-                        sessionTimer?.invalidate()
-                        sessionTimer = nil
-                        totalCycleTime = 0
-                        total = 0
-                        currentIndex = 0
-                        count = playSessionValues[currentIndex].duration
-                        total = playSessionValues[currentIndex].duration
-                        if let session = selectedSession {
-                            totalCycleTime = setTotalSessionTime(selectedSession: session)
-                            totalTimeStr = formatTime(time: totalCycleTime)
+                        if isPaused {
+                            // Resume
+                            isPaused = false
+                            if let pauseStartTime = pauseStartTime {
+                                remainingTime = Date().timeIntervalSince(pauseStartTime)
+                            }
+                            player.resumeAudio()
+                            cycleTimer?.invalidate()
+                            cycleTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                                if count > 0 {
+                                    count -= 1
+                                } else {
+                                    cycleTimer?.invalidate()
+                                    currentIndex += 1
+                                    startSession()
+                                }
+                            }
+                        } else {
+                            // Pause
+                            isPaused = true
+                            pauseStartTime = Date()
+                            player.pauseAudio()
+                            cycleTimer?.invalidate()
+                            sessionTimer?.invalidate()
                         }
-                        breathLabel = true
-                        
                     }
                     
                 } label: {
-                    switch isPlaying {
-                    case true: Image(systemName: "pause.fill")
-                    case false: Image(systemName: "play.fill")
-                        
+                    switch (isPlaying, isPaused) {
+                    case (true, true): Image(systemName: "play.fill")
+                    case (true, false): Image(systemName: "pause.fill")
+                    case (false, _): Image(systemName: "play.fill")
                     }
                 }
                 
@@ -319,96 +328,95 @@ struct BreatheView: View {
             if let currentSession = selectedSession {
                 let totalSessionCycles = currentSession.cycles.count
                 
-                var timeInterval: TimeInterval = 1
-                //totalCycleTime = setTotalSessionTime(selectedSession: currentSession)
-                
                 if currentIndex < playSessionValues.count {
-                    //print("curentIndex: \(currentIndex + 1) currentCycleCount: \(currentCycleCount)  TestCycle Count: \(currentIndex / 4 + 1)")
-                    
                     if currentCycleCount == currentIndex / 4 + 1 && currentIndex + 1 <= totalSessionCycles * 4 {
                         announceCurentCycle(currentCycle: currentCycleCount, lastCycle: totalSessionCycles)
                         currentCycleCount += 1
-                        await delay(seconds: 3.0)
-                        
+                        if !isPaused {
+                            await delay(seconds: 3.0)
+                        }
                     }
-                    
                     
                     count = playSessionValues[currentIndex].duration
                     total = playSessionValues[currentIndex].duration
                     
-                    print("currentIndex: \(currentIndex)")
                     if playSessionValues[currentIndex].displayLabel == .breath {
-                        
-                        timeInterval = currentSession.cycles[currentIndex / 4].inhale + currentSession.cycles[currentIndex / 4].exhale
-                        
+                        let timeInterval = currentSession.cycles[currentIndex / 4].inhale + currentSession.cycles[currentIndex / 4].exhale
                         let inBreathBeats = Int(currentSession.cycles[currentIndex / 4].inhale) - 1
                         let outBreathBeats = Int(currentSession.cycles[currentIndex / 4].exhale) - 1
                         
-                        
-                        
-                        //player.startBreathRoutine(inhaleBeats: inBreathBeats, exhaleBeats: outBreathBeats)
-                        
-                        player.startBreathRoutine(breaths: currentSession.cycles[currentIndex / 4].breaths,
-                                                  inhaleBeats: inBreathBeats, exhaleBeats: outBreathBeats,
-                                                  inhaleDuration: currentSession.cycles[currentIndex / 4].inhale,
-                                                  exhaleDuration: currentSession.cycles[currentIndex / 4].exhale)
-                        
+                        player.startBreathRoutine(
+                            breaths: currentSession.cycles[currentIndex / 4].breaths,
+                            inhaleBeats: inBreathBeats,
+                            exhaleBeats: outBreathBeats,
+                            inhaleDuration: currentSession.cycles[currentIndex / 4].inhale,
+                            exhaleDuration: currentSession.cycles[currentIndex / 4].exhale
+                        )
                         breathLabel = true
-                        
-                        
-                        
                     } else {
-                        
-                        
                         breathLabel = false
-                        timeInterval = 1
                         
                         switch playSessionValues[currentIndex].audioStr {
-
-                        case "meditation" :
-                            player.playAudio(fileName: "breathHoldPrep", fileExtension: "m4a")
-                            await delay(seconds: 7.0)
-                            player.playAudio(fileName: "meditation", fileExtension: "m4a",playForDuration: TimeInterval(currentSession.cycles[currentIndex / 4].breathHold),fade: true)
-                        case "recoveryBreath" :
-                            player.playAudio(fileName: "recoveryBreath", fileExtension: "m4a")
-                            await delay(seconds: 8.0)
-                            player.runFinalHoldCadence(k: currentSession.cycles[currentIndex / 4].finalHold)
+                        case "meditation":
+                            if !isPaused {
+                                player.playAudio(fileName: "breathHoldPrep", fileExtension: "m4a")
+                                await delay(seconds: 7.0)
+                                player.playAudio(
+                                    fileName: "meditation",
+                                    fileExtension: "m4a",
+                                    playForDuration: TimeInterval(currentSession.cycles[currentIndex / 4].breathHold),
+                                    fade: true
+                                )
+                            }
+                        case "recoveryBreath":
+                            if !isPaused {
+                                player.playAudio(fileName: "recoveryBreath", fileExtension: "m4a")
+                                await delay(seconds: 8.0)
+                                player.runFinalHoldCadence(k: currentSession.cycles[currentIndex / 4].finalHold)
+                            }
                         case "sectionEnd":
-                            player.playAudio(fileName: "sectionEnd", fileExtension: "m4a")
-                            await delay(seconds: 7.0)                            
+                            if !isPaused {
+                                player.playAudio(fileName: "sectionEnd", fileExtension: "m4a")
+                                await delay(seconds: 7.0)
+                            }
                         case "meditationLong":
-                            player.playAudio(fileName: "meditation", fileExtension: "m4a",playForDuration: TimeInterval(currentSession.meditationTime) * 60,fade: true)
-                            
-                            
-                        default :
+                            if !isPaused {
+                                player.playAudio(
+                                    fileName: "meditation",
+                                    fileExtension: "m4a",
+                                    playForDuration: TimeInterval(currentSession.meditationTime) * 60,
+                                    fade: true
+                                )
+                            }
+                        default:
                             break
-                            
-                            
                         }
                     }
                     
-                
-                    
-                    sessionTimer?.invalidate()
-                    sessionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-                        if totalCycleTime  > 0 {
-                            totalCycleTime  -= 1
-                            totalTimeStr = formatTime(time: totalCycleTime)
-                        } else {
-                            sessionTimer?.invalidate()
+                    if !isPaused {
+                        sessionTimer?.invalidate()
+                        sessionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                            if totalCycleTime > 0 {
+                                totalCycleTime -= 1
+                                totalTimeStr = formatTime(time: totalCycleTime)
+                            } else {
+                                sessionTimer?.invalidate()
+                            }
                         }
-                    }
-                    cycleTimer?.invalidate()
-                    cycleTimer = Timer.scheduledTimer(withTimeInterval:timeInterval, repeats: true) { _ in
-                        if count  > 0 {
-                            count  -= 1
-                        } else {
-                            cycleTimer?.invalidate()
-                            currentIndex += 1
-                            startSession()
+                        
+                        cycleTimer?.invalidate()
+                        cycleTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                            if count > 0 {
+                                count -= 1
+                            } else {
+                                cycleTimer?.invalidate()
+                                currentIndex += 1
+                                startSession()
+                            }
                         }
                     }
                 } else {
+                    // Session complete
                     cycleTimer?.invalidate()
                     cycleTimer = nil
                     sessionTimer?.invalidate()
@@ -418,11 +426,11 @@ struct BreatheView: View {
                     count = playSessionValues[currentIndex].duration
                     total = playSessionValues[currentIndex].duration
                     isPlaying = false
+                    isPaused = false
                     breathLabel = true
                     totalCycleTime = setTotalSessionTime(selectedSession: currentSession)
                     totalTimeStr = formatTime(time: totalCycleTime)
                     currentCycleCount = 1
-                    
                 }
             }
         }
